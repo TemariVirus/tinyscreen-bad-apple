@@ -15,6 +15,7 @@
             ffmpeg-headless
             python313
             python313Packages.pillow
+            yt-dlp
           ];
           shellHook = "";
         };
