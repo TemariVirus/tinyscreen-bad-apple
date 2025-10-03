@@ -42,9 +42,10 @@ void drawFrame(size_t frame_num) {
 
   uint8_t buf[WIDTH * HEIGHT];
   for (size_t i = 0; i < WIDTH * HEIGHT; i++) {
-    size_t index = i / DATA_SIZE;
+    size_t pixel_index = i / DATA_SIZE;
+    size_t index = (frame_num * WIDTH * HEIGHT / DATA_SIZE) + pixel_index;
     int shift = i % DATA_SIZE;
-    uint8_t bit = (frames[frame_num][index] >> shift) & 1;
+    uint8_t bit = (frames[index] >> shift) & 1;
     buf[i] = bit * TS_8b_White;
   }
   display.writeBuffer(buf, WIDTH * HEIGHT);

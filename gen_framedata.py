@@ -9,28 +9,48 @@ HEIGHT = 64
 DATA_SIZE = 32  # sizeof(size_t) in bits
 
 assert (WIDTH * HEIGHT) % DATA_SIZE == 0
-frames_var = f"extern const size_t frames[][{WIDTH * HEIGHT // DATA_SIZE}]"
+frames_var = "extern const size_t frames[]"
 
 
-def write_frame(f: TextIO, path: str) -> None:
+class BitWriter:
+    assert DATA_SIZE % 4 == 0
+    HEX_LEN = DATA_SIZE // 4
+    ROW_LEN = 8
+
+    def __init__(self, file: TextIO) -> None:
+        self.file = file
+        self.written = 0
+        self.data = 0
+        self.pos = 0
+
+    def flush(self) -> None:
+        if self.pos > 0:
+            if self.written % self.ROW_LEN == 0:
+                self.file.write("\n    ")
+            self.file.write(f"0x{self.data:0{self.HEX_LEN}x}, ")
+            self.data = 0
+            self.pos = 0
+            self.written += 1
+
+    def write(self, bit: int) -> None:
+        assert bit in (0, 1)
+        self.data |= bit << self.pos
+        self.pos += 1
+        if self.pos == DATA_SIZE:
+            self.flush()
+
+
+def decode_frame(path: str) -> list[int]:
     image = Image.open(path)
-    bw_image = image.convert("L").point(lambda x: 0 if x < 128 else 255, mode="1")
-    pixels = list(bw_image.getdata())
-    datas = []
+    bw_image = image.convert("L").point(lambda x: 0 if x < 128 else 1, mode="1")
+    image.close()
+    return list(bw_image.getdata())
 
-    for i in range(0, len(pixels), DATA_SIZE):
-        data = 0
-        for j in range(DATA_SIZE):
-            if i + j < len(pixels):
-                # Set the bit if the pixel is white (255 in 1-bit mode)
-                if pixels[i + j] == 255:
-                    data |= 1 << j
-        datas.append(data)
 
-    for i, data in enumerate(datas):
-        if i % 8 == 0:
-            f.write("\n    ")
-        f.write(f"0x{data:08x}, ")
+def write_frame(writer: BitWriter, pixels: list[int]) -> None:
+    for pixel in pixels:
+        writer.write(pixel)
+    writer.flush()
 
 
 with open(f"{FILENAME}.h", "w") as f:
@@ -44,6 +64,9 @@ with open(f"{FILENAME}.h", "w") as f:
 
 with open(f"{FILENAME}.cpp", "w") as f:
     f.write(f"#include <TinyScreen.h>\n\n{frames_var} = {{")
+    bit_writer = BitWriter(f)
     for i in range(1, FRAME_COUNT + 1):
-        write_frame(f, f"frames/{i:0>4}.bmp")
+        frame = decode_frame(f"frames/{i:0>4}.bmp")
+        write_frame(bit_writer, frame)
+    bit_writer.flush()
     f.write("\n};\n")
