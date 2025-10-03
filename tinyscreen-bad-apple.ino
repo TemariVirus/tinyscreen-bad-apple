@@ -1,7 +1,4 @@
 #define FRAME_RATE    15
-#define WIDTH         96
-#define HEIGHT        64
-
 
 #include <TinyScreen.h>
 #include <SPI.h>
@@ -45,9 +42,9 @@ void drawFrame(size_t frame_num) {
 
   uint8_t buf[WIDTH * HEIGHT];
   for (size_t i = 0; i < WIDTH * HEIGHT; i++) {
-    size_t index = i / 8;
-    int shift = i % 8;
-    int bit = (frames[frame_num][index] >> shift) & 1;
+    size_t index = i / DATA_SIZE;
+    int shift = i % DATA_SIZE;
+    uint8_t bit = (frames[frame_num][index] >> shift) & 1;
     buf[i] = bit * TS_8b_White;
   }
   display.writeBuffer(buf, WIDTH * HEIGHT);
