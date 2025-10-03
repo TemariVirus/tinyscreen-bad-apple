@@ -13,6 +13,7 @@ uint8_t BRIGHTNESS = 2;
 
 TinyScreen display = TinyScreen(TinyScreenPlus);
 unsigned long last_micros;
+size_t current_frame = 0;
 
 
 void setup(void) {
@@ -27,16 +28,18 @@ void setup(void) {
 }
 
 void loop() {
-  drawFrame();
+  drawFrame(current_frame);
+  current_frame = (current_frame + 1) % FRAME_COUNT;
 
   unsigned long elapsed = micros() - last_micros;
+  SerialUSB.print("Render time: ");
   SerialUSB.print(elapsed);
   SerialUSB.println("us");
 
   waitForNextFrame();
 }
 
-void drawFrame() {
+void drawFrame(size_t frame_num) {
   display.goTo(0, 0);
   display.startData();
 
@@ -44,7 +47,7 @@ void drawFrame() {
   for (size_t i = 0; i < WIDTH * HEIGHT; i++) {
     size_t index = i / 8;
     int shift = i % 8;
-    int bit = (frame[index] >> shift) & 1;
+    int bit = (frames[frame_num][index] >> shift) & 1;
     buf[i] = bit * TS_8b_White;
   }
   display.writeBuffer(buf, WIDTH * HEIGHT);
