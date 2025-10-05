@@ -94,7 +94,7 @@ class RunLengthWriter(Writer):
 
 def decode_frame(path: str) -> list[int]:
     image = Image.open(path)
-    bw_image = image.convert("L").point(lambda x: 0 if x < 128 else 1, mode="1")
+    bw_image = image.convert("L").point(lambda x: 0 if x < 192 else 1, mode="1")
     image.close()
     return list(bw_image.getdata())
 
