@@ -1,13 +1,13 @@
-from typing import TextIO, Tuple
+from typing import TextIO
 
 from PIL import Image
 
 FILENAME = "framedata"
-FRAME_COUNT = 555
+FRAME_COUNT = 547
 WIDTH = 96
 HEIGHT = 64
 DATA_SIZE = 32  # sizeof(size_t) in bits
-LEN_SIZE = 12
+LEN_SIZE = 13
 
 assert (WIDTH * HEIGHT) % DATA_SIZE == 0
 FRAMES_VAR = "extern const size_t frames[]"
@@ -42,7 +42,6 @@ class BitWriter:
             self.flush()
 
     def write_int(self, value: int, bits: int) -> None:
-        assert value < (1 << bits)
         for i in range(bits):
             self.write((value >> i) & 1)
 
@@ -58,31 +57,16 @@ def write_frame(
     writer: BitWriter,
     previous_pixels: list[int],
     pixels: list[int],
-) -> Tuple[bool, int]:
-    diffs = []
+) -> int:
+    diffs = 0
     for y in range(HEIGHT):
         for x in range(WIDTH):
             i = y * WIDTH + x
             if pixels[i] != previous_pixels[i]:
-                diffs.append((x, y))
-
-    write_diffs = len(diffs) <= HEIGHT * WIDTH // 2
-    if write_diffs:
-        length = len(diffs)
-        for x, y in diffs:
-            writer.write_int(x, 7)
-            writer.write_int(y, 6)
-    else:
-        length = 0
-        for y in range(HEIGHT):
-            for x in range(WIDTH):
-                i = y * WIDTH + x
-                if pixels[i] == previous_pixels[i]:
-                    writer.write_int(x, 7)
-                    writer.write_int(y, 6)
-                    length += 1
-
-    return write_diffs, length
+                writer.write_int(x, 7)
+                writer.write_int(y, 6)
+                diffs += 1
+    return diffs
 
 
 with open(f"{FILENAME}.h", "w") as f:
@@ -98,28 +82,26 @@ with open(f"{FILENAME}.h", "w") as f:
 
 with open(f"{FILENAME}.cpp", "w") as f:
     f.write("#include <TinyScreen.h>\n")
-    written = 0
-    headers = []
 
     f.write(f"\n{FRAMES_VAR} = {{")
     bit_writer = BitWriter(f)
+    lens = []
     previous_frame = [0] * (WIDTH * HEIGHT)
     for i in range(1, FRAME_COUNT + 1):
         frame = decode_frame(f"frames/{i:0>4}.bmp")
-        header = write_frame(bit_writer, previous_frame, frame)
-        headers.append(header)
+        length = write_frame(bit_writer, previous_frame, frame)
+        lens.append(length)
         previous_frame = frame
     bit_writer.flush()
     f.write("\n};\n")
-    written += bit_writer.written
+    written = bit_writer.written
 
     bit_writer = BitWriter(f)
     f.write(f"\n{LENS_VAR} = {{")
-    for write_diff, length in headers:
-        bit_writer.write_int(int(write_diff), 1)
+    for length in lens:
         bit_writer.write_int(length, LEN_SIZE)
     bit_writer.flush()
     f.write("\n};\n")
     written += bit_writer.written
 
-    print(f"Wrote {written * DATA_SIZE // 8} bytes")
+    print(f"Wrote {written * 4} size_t values to {FILENAME}.cpp")

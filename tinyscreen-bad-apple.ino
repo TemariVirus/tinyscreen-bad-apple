@@ -80,27 +80,12 @@ void loop() {
 void drawFrame(VideoState* state) {
   display.startData();
 
-  bool write_diff = state->len_reader.readBits(1);
   size_t len = state->len_reader.readBits(LEN_SIZE);
-  if (write_diff) {
-    for (size_t i = 0; i < len; i++) {
-      uint8_t x = state->frame_reader.readBits(7);
-      uint8_t y = state->frame_reader.readBits(6);
-      state->pixels[y * WIDTH + x] ^= 0xFF;
-      display.drawPixel(x, y, state->pixels[y * WIDTH + x]);
-    }
-  } else {
-    uint8_t x1 = state->frame_reader.readBits(7);
-    uint8_t y1 = state->frame_reader.readBits(6);
-    for (uint8_t y; y < 64; y++) {
-      for (uint8_t x; x < 96; x++) {
-        if (x == x1 && y == y1) {
-          continue;
-        }
-        state->pixels[y * WIDTH + x] ^= 0xFF;
-        display.drawPixel(x, y, state->pixels[y * WIDTH + x]);
-      }
-    }
+  for (size_t i = 0; i < len; i++) {
+    uint8_t x = state->frame_reader.readBits(7);
+    uint8_t y = state->frame_reader.readBits(6);
+    state->pixels[y * WIDTH + x] ^= 0xFF;
+    display.drawPixel(x, y, state->pixels[y * WIDTH + x]);
   }
 
   display.endTransfer();
