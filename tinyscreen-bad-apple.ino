@@ -15,6 +15,10 @@ struct BitReader {
   BitReader(const size_t* data)
     : data(data), bit_pos(0) {}
 
+  void reset() {
+    bit_pos = 0;
+  }
+
   uint32_t readBits(uint8_t n) {
     uint32_t value = 0;
     for (uint8_t i = 0; i < n; i++) {
@@ -29,22 +33,23 @@ struct BitReader {
 };
 
 struct RunLengthReader {
-  BitReader reader;
+  BitReader* reader;
+  size_t runs;
   uint8_t value;
   uint8_t count;
 
-  RunLengthReader(const size_t* data)
-    : reader(BitReader(data)), value(0), count(0) {}
-
-  void reset() {
-    count = 0;
-    reader.bit_pos = 0;
-  }
+  RunLengthReader(BitReader* reader, size_t runs)
+    : reader(reader), runs(runs), value(0), count(0) {}
 
   uint8_t readBit() {
+    if (runs == 0) {
+      return value;
+    }
     if (count == 0) {
-      value = reader.readBits(1);
-      count = reader.readBits(COUNT_SIZE) + 1;
+      value = reader->readBits(1);
+      if (--runs != 0) {
+        count = reader->readBits(COUNT_SIZE) + 1;
+      }
     }
     count--;
     return value;
@@ -53,7 +58,7 @@ struct RunLengthReader {
 
 struct VideoState {
   uint8_t pixels[WIDTH * HEIGHT];
-  RunLengthReader reader;
+  BitReader reader;
   size_t frame;
 
   VideoState(const size_t* frames)
@@ -65,8 +70,17 @@ struct VideoState {
   }
 
   void nextFrame() {
-    for (size_t i = 0; i < sizeof(pixels); i++) {
-      pixels[i] = reader.readBit() ? 0xFF : 0x00;
+    bool use_col_major = reader.readBits(1);
+    size_t runs = reader.readBits(RUN_COUNT_SIZE) + 1;
+    RunLengthReader rlr = RunLengthReader(&reader, runs);
+    for (size_t i = 0; i < HEIGHT * WIDTH; i++) {
+      size_t j = i;
+      if (use_col_major) {
+        size_t x = i / HEIGHT;
+        size_t y = i % HEIGHT;
+        j = y * WIDTH + x;
+      }
+      pixels[j] = rlr.readBit() ? 0xFF : 0x00;
     }
   }
 };
@@ -104,10 +118,9 @@ void loop() {
 
 void drawFrame(VideoState* state) {
   display.startData();
-
+  // TODO: smooth out the B&W frame to prevent strong aliasing effects
   state->nextFrame();
   display.writeBuffer(state->pixels, WIDTH * HEIGHT);
-
   display.endTransfer();
 }
 

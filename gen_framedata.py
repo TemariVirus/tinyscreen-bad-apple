@@ -3,14 +3,14 @@ from typing import TextIO
 from PIL import Image
 
 FILENAME = "framedata"
-FRAME_COUNT = 1322
+FRAME_COUNT = 1478
 WIDTH = 96
 HEIGHT = 64
 DATA_SIZE = 32  # sizeof(size_t) in bits
 COUNT_SIZE = 7
-
-
+RUN_COUNT_SIZE = 9
 assert (WIDTH * HEIGHT) % DATA_SIZE == 0
+
 FRAMES_VAR = "extern const size_t frames[]"
 
 
@@ -24,6 +24,17 @@ class Writer:
     def write_int(self, value: int, bits: int) -> None:
         for i in range(bits):
             self.write_bit((value >> i) & 1)
+
+
+class CountingWriter(Writer):
+    def __init__(self) -> None:
+        self.written = 0
+
+    def flush(self) -> None:
+        pass
+
+    def write_bit(self, bit: int) -> None:
+        self.written += 1
 
 
 class BitWriter(Writer):
@@ -58,26 +69,27 @@ class RunLengthWriter(Writer):
     MAX_COUNT = 1 << COUNT_SIZE
 
     def __init__(self, writer: Writer) -> None:
-        self.value = 0
-        self.count = 0
+        self.values = []
+        self.runs = 0
         self.writer = writer
 
     def flush(self) -> None:
-        if self.count == 0:
-            return
-        self.writer.write_int(self.value, 1)
-        self.writer.write_int(self.count - 1, COUNT_SIZE)
-        self.count = 0
+        while len(self.values) > 0:
+            value = self.values[0]
+            self.runs += 1
+            self.writer.write_int(value, 1)
+            try:
+                count = self.values.index(1 - value)
+            except ValueError:
+                # The bits never change from here until the end of the frame, so the length can be inferred
+                break
+            count = min(RunLengthWriter.MAX_COUNT, count)
+            self.writer.write_int(count - 1, COUNT_SIZE)
+            self.values = self.values[count:]
 
     def write_bit(self, bit: int) -> None:
         assert bit in (0, 1)
-        # Special case for first bit
-        if self.count == 0:
-            self.value = bit
-        if bit != self.value or self.count == RunLengthWriter.MAX_COUNT:
-            self.flush()
-            self.value = bit
-        self.count += 1
+        self.values.append(bit)
 
 
 def decode_frame(path: str) -> list[int]:
@@ -87,9 +99,44 @@ def decode_frame(path: str) -> list[int]:
     return list(bw_image.getdata())
 
 
-def write_frame(writer: Writer, pixels: list[int]) -> None:
+def write_row_major(writer: Writer, pixels: list[int]) -> None:
     for p in pixels:
         writer.write_bit(p)
+
+
+def write_col_major(writer: Writer, pixels: list[int]) -> None:
+    for x in range(WIDTH):
+        for y in range(HEIGHT):
+            p = pixels[y * WIDTH + x]
+            writer.write_bit(p)
+
+
+def write_frame(writer: Writer, pixels: list[int]) -> None:
+    cw = CountingWriter()
+    rlw = RunLengthWriter(cw)
+    write_row_major(rlw, pixels)
+    rlw.flush()
+    row_major_len = cw.written
+    row_major_runs = rlw.runs
+
+    cw = CountingWriter()
+    rlw = RunLengthWriter(cw)
+    write_col_major(rlw, pixels)
+    rlw.flush()
+    col_major_len = cw.written
+    col_major_runs = rlw.runs
+
+    use_row_major = row_major_len <= col_major_len
+    writer.write_bit(0 if use_row_major else 1)
+    runs = row_major_runs if use_row_major else col_major_runs
+    assert runs <= (1 << RUN_COUNT_SIZE)
+    writer.write_int(runs - 1, RUN_COUNT_SIZE)
+    rlw = RunLengthWriter(writer)
+    if use_row_major:
+        write_row_major(rlw, pixels)
+    else:
+        write_col_major(rlw, pixels)
+    rlw.flush()
 
 
 with open(f"{FILENAME}.h", "w") as f:
@@ -98,7 +145,8 @@ with open(f"{FILENAME}.h", "w") as f:
         f"#define WIDTH          {WIDTH}\n"
         f"#define HEIGHT         {HEIGHT}\n"
         f"#define DATA_SIZE      {DATA_SIZE}\n"
-        f"#define COUNT_SIZE     {COUNT_SIZE}\n",
+        f"#define COUNT_SIZE     {COUNT_SIZE}\n"
+        f"#define RUN_COUNT_SIZE {RUN_COUNT_SIZE}\n",
     )
     f.write(f"\n{FRAMES_VAR};")
 
@@ -108,11 +156,9 @@ with open(f"{FILENAME}.cpp", "w") as f:
 
     f.write(f"\n{FRAMES_VAR} = {{")
     bit_writer = BitWriter(f)
-    rl_writer = RunLengthWriter(bit_writer)
     for i in range(1, FRAME_COUNT + 1):
         frame = decode_frame(f"frames/{i:0>4}.bmp")
-        write_frame(rl_writer, frame)
-    rl_writer.flush()
+        write_frame(bit_writer, frame)
     bit_writer.flush()
     f.write("\n};\n")
     written += bit_writer.written
