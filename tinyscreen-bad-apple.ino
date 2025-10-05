@@ -1,4 +1,4 @@
-#define FRAME_RATE    15
+#define FRAME_RATE 15
 
 #include <TinyScreen.h>
 #include <SPI.h>
@@ -12,7 +12,8 @@ struct BitReader {
   const size_t* data;
   size_t bit_pos;
 
-  BitReader(const size_t* data) : data(data), bit_pos(0) {}
+  BitReader(const size_t* data)
+    : data(data), bit_pos(0) {}
 
   uint32_t readBits(uint8_t n) {
     uint32_t value = 0;
@@ -27,27 +28,51 @@ struct BitReader {
   }
 };
 
-struct VideoState {
-  uint8_t pixels[WIDTH * HEIGHT];
-  size_t frame;
-  BitReader frame_reader;
-  BitReader len_reader;
+struct RunLengthReader {
+  BitReader reader;
+  uint8_t value;
+  uint8_t count;
 
-  VideoState(const size_t* frames, const size_t* lens) :
-    frame(0), frame_reader(frames), len_reader(lens) {
-    memset(pixels, 0, WIDTH * HEIGHT);
-  }
+  RunLengthReader(const size_t* data)
+    : reader(BitReader(data)), value(0), count(0) {}
 
   void reset() {
-    memset(pixels, 0, WIDTH * HEIGHT);
+    count = 0;
+    reader.bit_pos = 0;
+  }
+
+  uint8_t readBit() {
+    if (count == 0) {
+      value = reader.readBits(1);
+      count = reader.readBits(COUNT_SIZE) + 1;
+    }
+    count--;
+    return value;
+  }
+};
+
+struct VideoState {
+  uint8_t pixels[WIDTH * HEIGHT];
+  RunLengthReader reader;
+  size_t frame;
+
+  VideoState(const size_t* frames)
+    : reader(frames), frame(0) {}
+
+  void reset() {
     frame = 0;
-    frame_reader.bit_pos = 0;
-    len_reader.bit_pos = 0;
+    reader.reset();
+  }
+
+  void nextFrame() {
+    for (size_t i = 0; i < sizeof(pixels); i++) {
+      pixels[i] = reader.readBit() ? 0xFF : 0x00;
+    }
   }
 };
 
 TinyScreen display = TinyScreen(TinyScreenPlus);
-VideoState video_state = VideoState(frames, lens);
+VideoState video_state = VideoState(frames);
 unsigned long last_micros;
 
 void setup(void) {
@@ -80,13 +105,8 @@ void loop() {
 void drawFrame(VideoState* state) {
   display.startData();
 
-  size_t len = state->len_reader.readBits(LEN_SIZE);
-  for (size_t i = 0; i < len; i++) {
-    uint8_t x = state->frame_reader.readBits(7);
-    uint8_t y = state->frame_reader.readBits(6);
-    state->pixels[y * WIDTH + x] ^= 0xFF;
-    display.drawPixel(x, y, state->pixels[y * WIDTH + x]);
-  }
+  state->nextFrame();
+  display.writeBuffer(state->pixels, WIDTH * HEIGHT);
 
   display.endTransfer();
 }
