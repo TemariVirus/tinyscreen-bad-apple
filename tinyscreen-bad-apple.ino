@@ -48,7 +48,12 @@ struct RunLengthReader {
     if (count == 0) {
       value = reader->readBits(1);
       if (--runs != 0) {
-        count = reader->readBits(COUNT_SIZE) + 1;
+        count = 0;
+        while (reader->readBits(1)) {
+          count += 1 << RICE_LOG2_M1;
+        }
+        count += reader->readBits(RICE_LOG2_M1);
+        count++;
       }
     }
     count--;
@@ -71,7 +76,13 @@ struct VideoState {
 
   void nextFrame() {
     bool use_col_major = reader.readBits(1);
-    size_t runs = reader.readBits(RUN_COUNT_SIZE) + 1;
+    size_t runs = 0;
+    while (reader.readBits(1)) {
+      runs += 1 << RICE_LOG2_M2;
+    }
+    runs += reader.readBits(RICE_LOG2_M2);
+    runs++;
+
     RunLengthReader rlr = RunLengthReader(&reader, runs);
     for (size_t i = 0; i < HEIGHT * WIDTH; i++) {
       size_t j = i;
@@ -118,6 +129,7 @@ void loop() {
 
 void drawFrame(VideoState* state) {
   display.startData();
+  display.goTo(0, 0);
   // TODO: smooth out the B&W frame to prevent strong aliasing effects
   state->nextFrame();
   display.writeBuffer(state->pixels, WIDTH * HEIGHT);

@@ -3,12 +3,12 @@ from typing import TextIO
 from PIL import Image
 
 FILENAME = "framedata"
-FRAME_COUNT = 1478
+FRAME_COUNT = 1698
 WIDTH = 96
 HEIGHT = 64
 DATA_SIZE = 32  # sizeof(size_t) in bits
-COUNT_SIZE = 7
-RUN_COUNT_SIZE = 9
+RICE_LOG2_M1 = 5
+RICE_LOG2_M2 = 7
 assert (WIDTH * HEIGHT) % DATA_SIZE == 0
 
 FRAMES_VAR = "extern const size_t frames[]"
@@ -24,6 +24,16 @@ class Writer:
     def write_int(self, value: int, bits: int) -> None:
         for i in range(bits):
             self.write_bit((value >> i) & 1)
+
+    # https://en.wikipedia.org/wiki/Golomb_coding#Rice_coding
+    def write_int_rice(self, value: int, rice_log2_m: int) -> None:
+        RICE_MASK = (1 << rice_log2_m) - 1
+        q = value >> rice_log2_m
+        r = value & RICE_MASK
+        for _ in range(q):
+            self.write_bit(1)
+        self.write_bit(0)
+        self.write_int(r, rice_log2_m)
 
 
 class CountingWriter(Writer):
@@ -66,8 +76,6 @@ class BitWriter(Writer):
 
 
 class RunLengthWriter(Writer):
-    MAX_COUNT = 1 << COUNT_SIZE
-
     def __init__(self, writer: Writer) -> None:
         self.values = []
         self.runs = 0
@@ -83,8 +91,7 @@ class RunLengthWriter(Writer):
             except ValueError:
                 # The bits never change from here until the end of the frame, so the length can be inferred
                 break
-            count = min(RunLengthWriter.MAX_COUNT, count)
-            self.writer.write_int(count - 1, COUNT_SIZE)
+            self.writer.write_int_rice(count - 1, RICE_LOG2_M1)
             self.values = self.values[count:]
 
     def write_bit(self, bit: int) -> None:
@@ -129,8 +136,7 @@ def write_frame(writer: Writer, pixels: list[int]) -> None:
     use_row_major = row_major_len <= col_major_len
     writer.write_bit(0 if use_row_major else 1)
     runs = row_major_runs if use_row_major else col_major_runs
-    assert runs <= (1 << RUN_COUNT_SIZE)
-    writer.write_int(runs - 1, RUN_COUNT_SIZE)
+    writer.write_int_rice(runs - 1, RICE_LOG2_M2)
     rlw = RunLengthWriter(writer)
     if use_row_major:
         write_row_major(rlw, pixels)
@@ -145,8 +151,8 @@ with open(f"{FILENAME}.h", "w") as f:
         f"#define WIDTH          {WIDTH}\n"
         f"#define HEIGHT         {HEIGHT}\n"
         f"#define DATA_SIZE      {DATA_SIZE}\n"
-        f"#define COUNT_SIZE     {COUNT_SIZE}\n"
-        f"#define RUN_COUNT_SIZE {RUN_COUNT_SIZE}\n",
+        f"#define RICE_LOG2_M1   {RICE_LOG2_M1}\n"
+        f"#define RICE_LOG2_M2   {RICE_LOG2_M2}\n",
     )
     f.write(f"\n{FRAMES_VAR};")
 
