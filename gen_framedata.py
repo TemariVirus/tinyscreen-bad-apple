@@ -1,16 +1,15 @@
+import os
 from copy import deepcopy
-from typing import TextIO
+from typing import TextIO, cast
 
 from PIL import Image
 
 FILENAME = "framedata"
-FRAME_COUNT = 6572
-WIDTH = 47
-HEIGHT = 35
-# Setting this higher/lower results in more compression, but thin objects may disappear
-BW_THRESHOLD = 128
+FRAME_COUNT = len(os.listdir("frames"))
+WIDTH = 96
+HEIGHT = 64
 DATA_SIZE = 32  # sizeof(size_t) in bits
-COUNT_LOG2_M = 4
+COUNT_LOG2_M = 5
 RUN_LEN_LOG2_M = 5
 SELECT_BITS = 1
 
@@ -107,12 +106,33 @@ class RunLengthWriter(Writer):
 
 
 def decode_frame(path: str) -> list[int]:
+    THRESH = 64
     image = Image.open(path)
-    bw_image = image.convert("L").point(
-        lambda x: 0 if x < BW_THRESHOLD else 1, mode="1"
-    )
+    grey = image.convert("L", colors=256)
+    bw = []
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            pixel = cast(float, grey.getpixel((x, y)))
+            if pixel > 256 - THRESH:
+                bw.append(1)
+                continue
+            if pixel < THRESH:
+                bw.append(0)
+                continue
+
+            black_neighbors = 0
+            for dy in range(-1, 2):
+                for dx in range(-1, 2):
+                    if dy == 0 and dx == 0:
+                        continue
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < WIDTH and 0 <= ny < HEIGHT:
+                        neighbor_pixel = cast(float, grey.getpixel((nx, ny)))
+                        if neighbor_pixel < 128:
+                            black_neighbors += 1
+            bw.append(0 if black_neighbors >= 5 else 1)
     image.close()
-    return list(bw_image.getdata())
+    return bw
 
 
 def write_row_major(writer: Writer, pixels: list[int]) -> None:

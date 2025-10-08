@@ -1,4 +1,4 @@
-#define FRAME_RATE 30
+#define FRAME_RATE 10
 #define RLR_UNDEFINED 127
 
 #include <TinyScreen.h>

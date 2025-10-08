@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 VIDEO=bad-apple.webm
-FRAMERATE=30
-WIDTH=47
-HEIGHT=35
+FRAMERATE=10
+WIDTH=96
+HEIGHT=64
 
 if test -f "$VIDEO"; then
     echo "$VIDEO already exists, skipping download"
