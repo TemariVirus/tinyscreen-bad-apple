@@ -1,15 +1,18 @@
+from copy import deepcopy
 from typing import TextIO
 
 from PIL import Image
 
 FILENAME = "framedata"
-FRAME_COUNT = 1698
-WIDTH = 96
-HEIGHT = 64
+FRAME_COUNT = 6572
+WIDTH = 44
+HEIGHT = 33
 DATA_SIZE = 32  # sizeof(size_t) in bits
-RICE_LOG2_M1 = 5
-RICE_LOG2_M2 = 7
-assert (WIDTH * HEIGHT) % DATA_SIZE == 0
+BW_THRESHOLD = 170
+RICE_LOG2_M1 = 4
+RICE_LOG2_M2 = 5
+SELECT_BITS = 1
+SKIP_LAST_RUN_LEN = True
 
 FRAMES_VAR = "extern const size_t frames[]"
 
@@ -89,8 +92,10 @@ class RunLengthWriter(Writer):
             try:
                 count = self.values.index(1 - value)
             except ValueError:
-                # The bits never change from here until the end of the frame, so the length can be inferred
-                break
+                if SKIP_LAST_RUN_LEN:
+                    # The bits never change from here until the end of the frame, so the length can be inferred
+                    break
+                count = len(self.values)
             self.writer.write_int_rice(count - 1, RICE_LOG2_M1)
             self.values = self.values[count:]
 
@@ -101,7 +106,9 @@ class RunLengthWriter(Writer):
 
 def decode_frame(path: str) -> list[int]:
     image = Image.open(path)
-    bw_image = image.convert("L").point(lambda x: 0 if x < 192 else 1, mode="1")
+    bw_image = image.convert("L").point(
+        lambda x: 0 if x < BW_THRESHOLD else 1, mode="1"
+    )
     image.close()
     return list(bw_image.getdata())
 
@@ -118,31 +125,45 @@ def write_col_major(writer: Writer, pixels: list[int]) -> None:
             writer.write_bit(p)
 
 
-def write_frame(writer: Writer, pixels: list[int]) -> None:
-    cw = CountingWriter()
-    rlw = RunLengthWriter(cw)
-    write_row_major(rlw, pixels)
-    rlw.flush()
-    row_major_len = cw.written
-    row_major_runs = rlw.runs
+def write_frame(
+    writer: Writer,
+    previous_pixels: list[list[int]],
+    pixels: list[int],
+) -> None:
+    best_rlw = RunLengthWriter(writer)
+    best_length = int(1e10)
+    best_runs = 0
+    index = 0
+    for i, ps in enumerate(previous_pixels):
+        pixels_diff = [pixels[i] ^ ps[i] for i in range(WIDTH * HEIGHT)]
 
-    cw = CountingWriter()
-    rlw = RunLengthWriter(cw)
-    write_col_major(rlw, pixels)
-    rlw.flush()
-    col_major_len = cw.written
-    col_major_runs = rlw.runs
+        cw = CountingWriter()
+        rlw = RunLengthWriter(cw)
+        write_row_major(rlw, pixels_diff)
+        rlw2 = deepcopy(rlw)
+        rlw.flush()
+        if cw.written < best_length:
+            best_length = cw.written
+            best_rlw = rlw2
+            best_runs = rlw.runs
+            index = i << 1
 
-    use_row_major = row_major_len <= col_major_len
-    writer.write_bit(0 if use_row_major else 1)
-    runs = row_major_runs if use_row_major else col_major_runs
-    writer.write_int_rice(runs - 1, RICE_LOG2_M2)
-    rlw = RunLengthWriter(writer)
-    if use_row_major:
-        write_row_major(rlw, pixels)
-    else:
-        write_col_major(rlw, pixels)
-    rlw.flush()
+        cw = CountingWriter()
+        rlw = RunLengthWriter(cw)
+        write_col_major(rlw, pixels_diff)
+        rlw2 = deepcopy(rlw)
+        rlw.flush()
+        if cw.written < best_length:
+            best_length = cw.written
+            best_rlw = rlw2
+            best_runs = rlw.runs
+            index = (i << 1) + 1
+
+    writer.write_int(index, SELECT_BITS + 1)
+    if SKIP_LAST_RUN_LEN:
+        writer.write_int_rice(best_runs - 1, RICE_LOG2_M2)
+    best_rlw.writer = writer
+    best_rlw.flush()
 
 
 with open(f"{FILENAME}.h", "w") as f:
@@ -162,9 +183,13 @@ with open(f"{FILENAME}.cpp", "w") as f:
 
     f.write(f"\n{FRAMES_VAR} = {{")
     bit_writer = BitWriter(f)
+    previous_frames = []
     for i in range(1, FRAME_COUNT + 1):
         frame = decode_frame(f"frames/{i:0>4}.bmp")
-        write_frame(bit_writer, frame)
+        write_frame(bit_writer, [[0] * (WIDTH * HEIGHT)] + previous_frames, frame)
+        previous_frames.append(frame)
+        if len(previous_frames) > (1 << SELECT_BITS) - 1:
+            previous_frames.pop(0)
     bit_writer.flush()
     f.write("\n};\n")
     written += bit_writer.written
