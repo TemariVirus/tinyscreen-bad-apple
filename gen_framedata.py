@@ -5,8 +5,8 @@ from PIL import Image
 
 FILENAME = "framedata"
 FRAME_COUNT = 6572
-WIDTH = 47
-HEIGHT = 35
+WIDTH = 48
+HEIGHT = 36
 BW_THRESHOLD = 64
 DATA_SIZE = 32  # sizeof(size_t) in bits
 COUNT_LOG2_M = 4
@@ -120,7 +120,8 @@ def decode_frame(path: str) -> list[int]:
                 continue
 
             black_neighbors = 0
-            for dy in range(-1, 2):
+            # Upward bias to preserve horizontal broomsticks
+            for dy in range(-1, 1):
                 for dx in range(-1, 2):
                     if dy == 0 and dx == 0:
                         continue
@@ -129,7 +130,7 @@ def decode_frame(path: str) -> list[int]:
                         neighbor_pixel = cast(float, grey.getpixel((nx, ny)))
                         if neighbor_pixel < 128:
                             black_neighbors += 1
-            bw.append(0 if black_neighbors >= 5 else 1)
+            bw.append(0 if black_neighbors >= 4 else 1)
     image.close()
     return bw
 

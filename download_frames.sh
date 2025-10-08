@@ -2,8 +2,8 @@
 
 VIDEO=bad-apple.webm
 FRAMERATE=30
-WIDTH=47
-HEIGHT=35
+WIDTH=48
+HEIGHT=36
 
 if test -f "$VIDEO"; then
     echo "$VIDEO already exists, skipping download"
