@@ -1,5 +1,9 @@
 #define FRAME_RATE 30
+#define SCREEN_WIDTH 96
+#define SCREEN_HEIGHT 64
 #define RLR_UNDEFINED 127
+#define FLOAT_SCALE 18
+#define FIXED_ONE ((fixed)1 << FLOAT_SCALE)
 
 #include <TinyScreen.h>
 #include <SPI.h>
@@ -7,6 +11,7 @@
 #include "framedata.h"
 
 typedef uint8_t ReadFn(void*);
+typedef uint32_t fixed;
 
 int FRAME_MICROS = 1000000 / FRAME_RATE;
 uint8_t BRIGHTNESS = 2;
@@ -114,7 +119,7 @@ struct VideoState {
         size_t y = i % HEIGHT;
         index = y * WIDTH + x;
       }
-      uint8_t diff = RunLengthReader_readBit(&rlr) ? 0xFF : 0x00;
+      uint8_t diff = RunLengthReader_readBit(&rlr) ? 1 : 0;
       pixels[index] = previous_pixels[index] ^ diff;
     }
   }
@@ -122,14 +127,43 @@ struct VideoState {
   void drawFrame(TinyScreen* display) {
     // TODO: smooth out the B&W frame to prevent strong aliasing effects
     nextFrame();
+    display->goTo(0, 0);
+    display->startData();
 
-    for (int i = 0; i < HEIGHT; i++) {
-      display->goTo(0, i);
-      display->startData();
-      display->writeBuffer(&pixels[i * WIDTH], WIDTH);
-      display->endTransfer();
+    // Bilinear interpolation to scale the image
+    uint16_t scaledRow[SCREEN_WIDTH];
+    for (int y = 0; y < SCREEN_HEIGHT; y++) {
+      fixed srcY = ((fixed)y * (HEIGHT - 1) << FLOAT_SCALE) / (SCREEN_HEIGHT - 1);
+      int y1 = srcY >> FLOAT_SCALE;
+      int y2 = (y1 < HEIGHT - 1) ? y1 + 1 : y1;
+      fixed yFrac = srcY - ((fixed)y1 << FLOAT_SCALE);
+
+      for (int x = 0; x < SCREEN_WIDTH; x++) {
+        fixed srcX = ((fixed)x * (WIDTH - 1) << FLOAT_SCALE) / (SCREEN_WIDTH - 1);
+        int x1 = srcX >> FLOAT_SCALE;
+        int x2 = (x1 < WIDTH - 1) ? x1 + 1 : x1;
+        fixed xFrac = srcX - ((fixed)x1 << FLOAT_SCALE);
+
+        uint8_t p11 = pixels[y1 * WIDTH + x1];
+        uint8_t p21 = pixels[y1 * WIDTH + x2];
+        uint8_t p12 = pixels[y2 * WIDTH + x1];
+        uint8_t p22 = pixels[y2 * WIDTH + x2];
+
+        fixed top = (fixed)p11 * (FIXED_ONE - xFrac) + (fixed)p21 * xFrac;
+        fixed bottom = (fixed)p12 * (FIXED_ONE - xFrac) + (fixed)p22 * xFrac;
+        fixed grey = (top >> FLOAT_SCALE) * (FIXED_ONE - yFrac) + (bottom >> FLOAT_SCALE) * yFrac;
+        if (grey >= FIXED_ONE) {
+          grey = FIXED_ONE - 1;
+        }
+        uint16_t b = grey >> (FLOAT_SCALE - 5);
+        uint16_t g = grey >> (FLOAT_SCALE - 6);
+        uint16_t r = grey >> (FLOAT_SCALE - 5);
+        scaledRow[x] = (b << 11) | (g << 5) | r;
+      }
+      display->writeBuffer((uint8_t*)scaledRow, SCREEN_WIDTH * 2);
     }
 
+    display->endTransfer();
     if (++frame == FRAME_COUNT) {
       reset();
     }
@@ -146,7 +180,7 @@ void setup(void) {
   Serial.begin(9600);
   display.begin();
   display.setFlip(true);
-  display.setBitDepth(TSBitDepth8);
+  display.setBitDepth(TSBitDepth16);
   display.setBrightness(BRIGHTNESS);
   last_micros = micros();
 }

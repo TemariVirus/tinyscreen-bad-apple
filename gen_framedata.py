@@ -1,10 +1,11 @@
+import os
 from copy import deepcopy
 from typing import TextIO, cast
 
 from PIL import Image
 
 FILENAME = "framedata"
-FRAME_COUNT = 6572
+FRAME_COUNT = len(os.listdir("frames"))
 WIDTH = 48
 HEIGHT = 36
 DATA_SIZE = 32  # sizeof(size_t) in bits
