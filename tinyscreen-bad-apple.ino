@@ -158,10 +158,11 @@ struct VideoState {
         if (grey >= FIXED_ONE) {
           grey = FIXED_ONE - 1;
         }
-        uint16_t b = grey >> (FLOAT_SCALE - 5);
-        uint16_t g = grey >> (FLOAT_SCALE - 6);
+
+        uint16_t b = grey >> (FLOAT_SCALE - 5 - 11);
+        uint16_t g = grey >> (FLOAT_SCALE - 6 - 5);
         uint16_t r = grey >> (FLOAT_SCALE - 5);
-        scaledRow[x] = (b << 11) | (g << 5) | r;
+        scaledRow[x] = b | g | r;
       }
       display->writeBuffer((uint8_t*)scaledRow, SCREEN_WIDTH * 2);
     }
@@ -175,7 +176,7 @@ struct VideoState {
 
 TinyScreen display = TinyScreen(TinyScreenPlus);
 VideoState video_state = VideoState(frames);
-unsigned long last_micros;
+uint32_t last_micros;
 
 void setup(void) {
   SerialUSB.begin(9600);
@@ -194,7 +195,7 @@ void loop() {
   SerialUSB.print(video_state.frame);
   SerialUSB.print(", ");
 
-  unsigned long elapsed = micros() - last_micros;
+  uint32_t elapsed = micros() - last_micros;
   SerialUSB.print("Render time: ");
   SerialUSB.print(elapsed);
   SerialUSB.println("us");
@@ -205,9 +206,9 @@ void loop() {
 void waitForNextFrame() {
   // Underflow is fine here as we only take the difference,
   // which is almost guaranteed to not overflow (70mins for a frame is crazy).
-  unsigned long elapsed = micros() - last_micros;
+  uint32_t elapsed = micros() - last_micros;
   if (FRAME_MICROS > elapsed) {
-    unsigned long remaining_milis = (FRAME_MICROS - elapsed) / 1000;
+    uint32_t remaining_milis = (FRAME_MICROS - elapsed) / 1000;
     uint16_t remainder = (FRAME_MICROS - elapsed) % 1000;
     delay(remaining_milis + (remainder > 500));
   }
