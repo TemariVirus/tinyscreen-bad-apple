@@ -7,7 +7,6 @@ FILENAME = "framedata"
 FRAME_COUNT = 6572
 WIDTH = 48
 HEIGHT = 36
-BW_THRESHOLD = 64
 DATA_SIZE = 32  # sizeof(size_t) in bits
 COUNT_LOG2_M = 4
 RUN_LEN_LOG2_M = 5
@@ -108,29 +107,39 @@ class RunLengthWriter(Writer):
 def decode_frame(path: str) -> list[int]:
     image = Image.open(path)
     grey = image.convert("L", colors=256)
+    is_white_dominant = cast(float, grey.reduce((WIDTH, HEIGHT)).getpixel((0, 0))) > 128
+    LOWER = 32
+    UPPER = 128
+    LOWER2 = 64
+    white_thresh = 256 - LOWER if is_white_dominant else 256 - UPPER
+    black_thresh = UPPER if is_white_dominant else LOWER
+    neighbor_thresh = 256 - LOWER2 if is_white_dominant else LOWER2
+
     bw = []
     for y in range(HEIGHT):
         for x in range(WIDTH):
             pixel = cast(float, grey.getpixel((x, y)))
-            if pixel > 256 - BW_THRESHOLD:
+            if pixel > white_thresh:
                 bw.append(1)
                 continue
-            if pixel < BW_THRESHOLD:
+            if pixel < black_thresh:
                 bw.append(0)
                 continue
 
-            black_neighbors = 0
-            # Upward bias to preserve horizontal broomsticks
-            for dy in range(-1, 1):
+            neighbors = 0
+            for dy in range(-1, 2):
                 for dx in range(-1, 2):
                     if dy == 0 and dx == 0:
                         continue
                     nx, ny = x + dx, y + dy
-                    if 0 <= nx < WIDTH and 0 <= ny < HEIGHT:
-                        neighbor_pixel = cast(float, grey.getpixel((nx, ny)))
-                        if neighbor_pixel < 128:
-                            black_neighbors += 1
-            bw.append(0 if black_neighbors >= 4 else 1)
+                    if not (0 <= nx < WIDTH and 0 <= ny < HEIGHT):
+                        continue
+                    neighbor_pixel = cast(float, grey.getpixel((nx, ny)))
+                    if neighbor_pixel == neighbor_thresh:
+                        continue
+                    if (neighbor_pixel < neighbor_thresh) == is_white_dominant:
+                        neighbors += 1
+            bw.append(int((neighbors >= 4) != is_white_dominant))
     image.close()
     return bw
 
