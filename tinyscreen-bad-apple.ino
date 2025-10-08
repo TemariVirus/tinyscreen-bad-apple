@@ -123,7 +123,6 @@ struct VideoState {
   }
 
   void drawFrame(TinyScreen* display) {
-    // TODO: smooth out the B&W frame to prevent strong aliasing effects
     nextFrame();
     display->goTo(0, 0);
     display->startData();
