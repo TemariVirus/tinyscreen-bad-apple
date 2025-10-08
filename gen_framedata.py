@@ -8,11 +8,10 @@ FRAME_COUNT = 6572
 WIDTH = 44
 HEIGHT = 33
 DATA_SIZE = 32  # sizeof(size_t) in bits
-BW_THRESHOLD = 170
-RICE_LOG2_M1 = 4
-RICE_LOG2_M2 = 5
+BW_THRESHOLD = 190
+COUNT_LOG2_M = 4
+RUN_LEN_LOG2_M = 5
 SELECT_BITS = 1
-SKIP_LAST_RUN_LEN = True
 
 FRAMES_VAR = "extern const size_t frames[]"
 
@@ -92,11 +91,9 @@ class RunLengthWriter(Writer):
             try:
                 count = self.values.index(1 - value)
             except ValueError:
-                if SKIP_LAST_RUN_LEN:
-                    # The bits never change from here until the end of the frame, so the length can be inferred
-                    break
-                count = len(self.values)
-            self.writer.write_int_rice(count - 1, RICE_LOG2_M1)
+                # The bits never change from here until the end of the frame, so the length can be inferred
+                break
+            self.writer.write_int_rice(count - 1, COUNT_LOG2_M)
             self.values = self.values[count:]
 
     def write_bit(self, bit: int) -> None:
@@ -130,38 +127,38 @@ def write_frame(
     previous_pixels: list[list[int]],
     pixels: list[int],
 ) -> None:
-    best_rlw = RunLengthWriter(writer)
-    best_length = int(1e10)
+    best_rlw = None
+    best_length = int(1e15)
     best_runs = 0
-    index = 0
-    for i, ps in enumerate(previous_pixels):
-        pixels_diff = [pixels[i] ^ ps[i] for i in range(WIDTH * HEIGHT)]
+    best_index = 0
+    for i, prev in enumerate(previous_pixels):
+        pixels_diff = [pixels[i] ^ prev[i] for i in range(WIDTH * HEIGHT)]
 
         cw = CountingWriter()
         rlw = RunLengthWriter(cw)
         write_row_major(rlw, pixels_diff)
-        rlw2 = deepcopy(rlw)
+        rlw_copy = deepcopy(rlw)
         rlw.flush()
         if cw.written < best_length:
             best_length = cw.written
-            best_rlw = rlw2
+            best_rlw = rlw_copy
             best_runs = rlw.runs
-            index = i << 1
+            best_index = (i << 1) | 0
 
         cw = CountingWriter()
         rlw = RunLengthWriter(cw)
         write_col_major(rlw, pixels_diff)
-        rlw2 = deepcopy(rlw)
+        rlw_copy = deepcopy(rlw)
         rlw.flush()
         if cw.written < best_length:
             best_length = cw.written
-            best_rlw = rlw2
+            best_rlw = rlw_copy
             best_runs = rlw.runs
-            index = (i << 1) + 1
+            best_index = (i << 1) | 1
 
-    writer.write_int(index, SELECT_BITS + 1)
-    if SKIP_LAST_RUN_LEN:
-        writer.write_int_rice(best_runs - 1, RICE_LOG2_M2)
+    writer.write_int(best_index, SELECT_BITS + 1)
+    writer.write_int_rice(best_runs - 1, RUN_LEN_LOG2_M)
+    assert best_rlw is not None
     best_rlw.writer = writer
     best_rlw.flush()
 
@@ -172,14 +169,14 @@ with open(f"{FILENAME}.h", "w") as f:
         f"#define WIDTH          {WIDTH}\n"
         f"#define HEIGHT         {HEIGHT}\n"
         f"#define DATA_SIZE      {DATA_SIZE}\n"
-        f"#define RICE_LOG2_M1   {RICE_LOG2_M1}\n"
-        f"#define RICE_LOG2_M2   {RICE_LOG2_M2}\n",
+        f"#define COUNT_LOG2_M   {COUNT_LOG2_M}\n"
+        f"#define RUN_LEN_LOG2_M {RUN_LEN_LOG2_M}\n"
+        f"#define SELECT_BITS    {SELECT_BITS}\n",
     )
     f.write(f"\n{FRAMES_VAR};")
 
 with open(f"{FILENAME}.cpp", "w") as f:
     f.write("#include <TinyScreen.h>\n")
-    written = 0
 
     f.write(f"\n{FRAMES_VAR} = {{")
     bit_writer = BitWriter(f)
@@ -188,10 +185,9 @@ with open(f"{FILENAME}.cpp", "w") as f:
         frame = decode_frame(f"frames/{i:0>4}.bmp")
         write_frame(bit_writer, [[0] * (WIDTH * HEIGHT)] + previous_frames, frame)
         previous_frames.append(frame)
-        if len(previous_frames) > (1 << SELECT_BITS) - 1:
+        if len(previous_frames) >= 1 << SELECT_BITS:
             previous_frames.pop(0)
     bit_writer.flush()
     f.write("\n};\n")
-    written += bit_writer.written
 
-    print(f"Wrote {written * 4} bytes to {FILENAME}.cpp")
+    print(f"Wrote {bit_writer.written * 4} bytes to {FILENAME}.cpp")
