@@ -1,12 +1,32 @@
-#define FRAME_RATE 15
+#define FRAME_RATE 30
 
 #include <TinyScreen.h>
 #include <SPI.h>
 #include <Wire.h>
 #include "framedata.h"
 
+typedef uint8_t ReadFn(void*);
+
 int FRAME_MICROS = 1000000 / FRAME_RATE;
 uint8_t BRIGHTNESS = 2;
+
+uint32_t readBits(void* reader, ReadFn* readFn, uint8_t bits) {
+  uint32_t value = 0;
+  for (uint8_t i = 0; i < bits; i++) {
+    value |= ((uint32_t)readFn(reader)) << i;
+  }
+  return value;
+}
+
+uint32_t readBitsRice(void* reader, ReadFn* readFn, uint8_t log2_m) {
+  uint32_t value = 0;
+  while (readFn(reader)) {
+    value += 1;
+  }
+  value <<= log2_m;
+  value |= readBits(reader, readFn, log2_m);
+  return value;
+}
 
 struct BitReader {
   const size_t* data;
@@ -18,80 +38,95 @@ struct BitReader {
   void reset() {
     bit_pos = 0;
   }
-
-  uint32_t readBits(uint8_t n) {
-    uint32_t value = 0;
-    for (uint8_t i = 0; i < n; i++) {
-      size_t index = bit_pos / DATA_SIZE;
-      size_t shift = bit_pos % DATA_SIZE;
-      uint8_t bit = (data[index] >> shift) & 1;
-      value |= (bit << i);
-      bit_pos++;
-    }
-    return value;
-  }
 };
+
+uint8_t BitReader_readBit(void* ptr) {
+  BitReader* reader = (BitReader*)ptr;
+  size_t index = reader->bit_pos / DATA_SIZE;
+  size_t shift = reader->bit_pos % DATA_SIZE;
+  reader->bit_pos++;
+  return (reader->data[index] >> shift) & 1;
+}
 
 struct RunLengthReader {
   BitReader* reader;
   size_t runs;
+  uint32_t count;
   uint8_t value;
-  uint8_t count;
+
 
   RunLengthReader(BitReader* reader, size_t runs)
-    : reader(reader), runs(runs), value(0), count(0) {}
-
-  uint8_t readBit() {
-    if (runs == 0) {
-      return value;
-    }
-    if (count == 0) {
-      value = reader->readBits(1);
-      if (--runs != 0) {
-        count = 0;
-        while (reader->readBits(1)) {
-          count += 1 << RICE_LOG2_M1;
-        }
-        count += reader->readBits(RICE_LOG2_M1);
-        count++;
-      }
-    }
-    count--;
-    return value;
-  }
+    : reader(reader), runs(runs), count(0), value(0) {}
 };
 
+uint8_t RunLengthReader_readBit(void* ptr) {
+  RunLengthReader* reader = (RunLengthReader*)ptr;
+  if (reader->runs == 0) {
+    return reader->value;
+  }
+  if (reader->count == 0) {
+    reader->value = BitReader_readBit(reader->reader);
+    if (--reader->runs != 0) {
+      reader->count = readBitsRice(reader->reader, &BitReader_readBit, COUNT_LOG2_M) + 1;
+    }
+  }
+  reader->count--;
+  return reader->value;
+}
+
 struct VideoState {
+  uint8_t previous_pixels[WIDTH * HEIGHT];
   uint8_t pixels[WIDTH * HEIGHT];
   BitReader reader;
   size_t frame;
 
   VideoState(const size_t* frames)
-    : reader(frames), frame(0) {}
+    : reader(frames), frame(0) {
+    memset(pixels, 0, WIDTH * HEIGHT);
+  }
 
   void reset() {
-    frame = 0;
+    memset(pixels, 0, WIDTH * HEIGHT);
     reader.reset();
+    frame = 0;
   }
 
   void nextFrame() {
-    bool use_col_major = reader.readBits(1);
-    size_t runs = 0;
-    while (reader.readBits(1)) {
-      runs += 1 << RICE_LOG2_M2;
+    bool use_col_major = readBits((void*)&reader, &BitReader_readBit, 1);
+    uint8_t prev_frame_index = readBits((void*)&reader, &BitReader_readBit, SELECT_BITS);
+    if (prev_frame_index) {
+      memcpy(previous_pixels, pixels, WIDTH * HEIGHT);
+    } else {
+      memset(previous_pixels, 0, WIDTH * HEIGHT);
     }
-    runs += reader.readBits(RICE_LOG2_M2);
-    runs++;
 
+    size_t runs = readBitsRice(&reader, &BitReader_readBit, RUN_LEN_LOG2_M) + 1;
     RunLengthReader rlr = RunLengthReader(&reader, runs);
     for (size_t i = 0; i < HEIGHT * WIDTH; i++) {
-      size_t j = i;
+      size_t index = i;
       if (use_col_major) {
         size_t x = i / HEIGHT;
         size_t y = i % HEIGHT;
-        j = y * WIDTH + x;
+        index = y * WIDTH + x;
       }
-      pixels[j] = rlr.readBit() ? 0xFF : 0x00;
+      uint8_t diff = RunLengthReader_readBit(&rlr) ? 0xFF : 0x00;
+      pixels[index] = previous_pixels[index] ^ diff;
+    }
+  }
+
+  void drawFrame(TinyScreen* display) {
+    // TODO: smooth out the B&W frame to prevent strong aliasing effects
+    nextFrame();
+
+    for (int i = 0; i < HEIGHT; i++) {
+      display->goTo(0, i);
+      display->startData();
+      display->writeBuffer(&pixels[i * WIDTH], WIDTH);
+      display->endTransfer();
+    }
+
+    if (++frame == FRAME_COUNT) {
+      reset();
     }
   }
 };
@@ -108,16 +143,14 @@ void setup(void) {
   display.setFlip(true);
   display.setBitDepth(TSBitDepth8);
   display.setBrightness(BRIGHTNESS);
-  display.clearScreen();
   last_micros = micros();
 }
 
 void loop() {
-  drawFrame(&video_state);
-  if (++video_state.frame == FRAME_COUNT) {
-    video_state.reset();
-    display.clearScreen();
-  }
+  video_state.drawFrame(&display);
+  SerialUSB.print("Frame: ");
+  SerialUSB.print(video_state.frame);
+  SerialUSB.print(", ");
 
   unsigned long elapsed = micros() - last_micros;
   SerialUSB.print("Render time: ");
@@ -125,15 +158,6 @@ void loop() {
   SerialUSB.println("us");
 
   waitForNextFrame();
-}
-
-void drawFrame(VideoState* state) {
-  display.startData();
-  display.goTo(0, 0);
-  // TODO: smooth out the B&W frame to prevent strong aliasing effects
-  state->nextFrame();
-  display.writeBuffer(state->pixels, WIDTH * HEIGHT);
-  display.endTransfer();
 }
 
 void waitForNextFrame() {
