@@ -152,6 +152,9 @@ struct VideoState {
         fixed top = (fixed)p11 * (FIXED_ONE - xFrac) + (fixed)p21 * xFrac;
         fixed bottom = (fixed)p12 * (FIXED_ONE - xFrac) + (fixed)p22 * xFrac;
         fixed grey = (top >> FLOAT_SCALE) * (FIXED_ONE - yFrac) + (bottom >> FLOAT_SCALE) * yFrac;
+        // Cube greyscale value to sharpen it
+        grey >>= 2 * FLOAT_SCALE / 3;
+        grey *= grey * grey;
         if (grey >= FIXED_ONE) {
           grey = FIXED_ONE - 1;
         }
