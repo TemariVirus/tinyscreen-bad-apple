@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
-FRAMERATE=30
 VIDEO=bad-apple.webm
+FRAMERATE=30
+WIDTH=47
+HEIGHT=35
 
 if test -f "$VIDEO"; then
     echo "$VIDEO already exists, skipping download"
@@ -10,5 +12,5 @@ else
 fi
 
 rm -rf frames
-mkdir frames
-ffmpeg -i $VIDEO -vf "scale=44:33" -r $FRAMERATE/1 'frames/%04d.bmp'
+mkdir -p frames
+ffmpeg -i $VIDEO -vf "scale=$WIDTH:$HEIGHT" -r $FRAMERATE/1 'frames/%04d.bmp'

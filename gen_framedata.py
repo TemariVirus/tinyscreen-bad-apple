@@ -5,10 +5,11 @@ from PIL import Image
 
 FILENAME = "framedata"
 FRAME_COUNT = 6572
-WIDTH = 44
-HEIGHT = 33
+WIDTH = 47
+HEIGHT = 35
+# Setting this higher/lower results in more compression, but thin objects may disappear
+BW_THRESHOLD = 128
 DATA_SIZE = 32  # sizeof(size_t) in bits
-BW_THRESHOLD = 190
 COUNT_LOG2_M = 4
 RUN_LEN_LOG2_M = 5
 SELECT_BITS = 1

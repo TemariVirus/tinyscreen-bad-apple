@@ -97,6 +97,7 @@ struct VideoState {
 
   void nextFrame() {
     bool use_col_major = readBits((void*)&reader, &BitReader_readBit, 1);
+    // This is limited to just the previous 1 frame to reduce code size
     uint8_t prev_frame_index = readBits((void*)&reader, &BitReader_readBit, SELECT_BITS);
     if (prev_frame_index) {
       memcpy(previous_pixels, pixels, WIDTH * HEIGHT);
