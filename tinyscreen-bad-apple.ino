@@ -1,4 +1,5 @@
 #define FRAME_RATE 30
+#define RLR_UNDEFINED 127
 
 #include <TinyScreen.h>
 #include <SPI.h>
@@ -54,9 +55,8 @@ struct RunLengthReader {
   uint32_t count;
   uint8_t value;
 
-
   RunLengthReader(BitReader* reader, size_t runs)
-    : reader(reader), runs(runs), count(0), value(0) {}
+    : reader(reader), runs(runs), count(0), value(RLR_UNDEFINED) {}
 };
 
 uint8_t RunLengthReader_readBit(void* ptr) {
@@ -65,7 +65,11 @@ uint8_t RunLengthReader_readBit(void* ptr) {
     return reader->value;
   }
   if (reader->count == 0) {
-    reader->value = BitReader_readBit(reader->reader);
+    if (reader->value == RLR_UNDEFINED) {
+      reader->value = BitReader_readBit(reader->reader);
+    } else {
+      reader->value = 1 - reader->value;
+    }
     if (--reader->runs != 0) {
       reader->count = readBitsRice(reader->reader, &BitReader_readBit, COUNT_LOG2_M) + 1;
     }

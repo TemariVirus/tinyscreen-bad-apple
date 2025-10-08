@@ -84,10 +84,14 @@ class RunLengthWriter(Writer):
         self.writer = writer
 
     def flush(self) -> None:
+        first = True
         while len(self.values) > 0:
             value = self.values[0]
             self.runs += 1
-            self.writer.write_int(value, 1)
+            if first:
+                # The value of every run from now on is just a toggle of the previous value
+                self.writer.write_int(value, 1)
+                first = False
             try:
                 count = self.values.index(1 - value)
             except ValueError:
