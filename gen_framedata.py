@@ -104,10 +104,13 @@ class RunLengthWriter(Writer):
         self.values.append(bit)
 
 
-def decode_frame(path: str) -> list[int]:
+def decode_frame(path: str, frame_index: int) -> list[int]:
     image = Image.open(path)
     grey = image.convert("L", colors=256)
     is_white_dominant = cast(float, grey.reduce((WIDTH, HEIGHT)).getpixel((0, 0))) > 128
+    # Stop knife wings from suddenly becoming thin
+    if 1687 <= frame_index <= 1736:
+        is_white_dominant = True
     LOWER = 32
     UPPER = 128
     LOWER2 = 64
@@ -216,7 +219,7 @@ with open(f"{FILENAME}.cpp", "w") as f:
     bit_writer = BitWriter(f)
     previous_frames = []
     for i in range(1, FRAME_COUNT + 1):
-        frame = decode_frame(f"frames/{i:0>4}.bmp")
+        frame = decode_frame(f"frames/{i:0>4}.bmp", i)
         write_frame(bit_writer, [[0] * (WIDTH * HEIGHT)] + previous_frames, frame)
         previous_frames.append(frame)
         if len(previous_frames) >= 1 << SELECT_BITS:
