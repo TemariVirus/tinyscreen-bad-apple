@@ -214,7 +214,7 @@ with open(f"{FILENAME}.h", "w") as f:
     f.write(f"\n{FRAMES_VAR};")
 
 with open(f"{FILENAME}.cpp", "w") as f:
-    f.write("#include <TinyScreen.h>\n")
+    f.write("#include <stddef.h>\n")
 
     f.write(f"\n{FRAMES_VAR} = {{")
     bit_writer = BitWriter(f)
