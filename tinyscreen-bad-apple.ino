@@ -133,13 +133,13 @@ struct VideoState {
     // Bilinear interpolation to scale the image
     uint16_t scaledRow[SCREEN_WIDTH];
     for (int y = 0; y < SCREEN_HEIGHT; y++) {
-      fixed srcY = ((fixed)y * (HEIGHT - 1) << FLOAT_SCALE) / (SCREEN_HEIGHT - 1);
+      fixed srcY = (fixed)y * ((36 << 10) - 1) << (FLOAT_SCALE - 6 - 10);
       int y1 = srcY >> FLOAT_SCALE;
       int y2 = (y1 < HEIGHT - 1) ? y1 + 1 : y1;
       fixed yFrac = srcY - ((fixed)y1 << FLOAT_SCALE);
 
       for (int x = 0; x < SCREEN_WIDTH; x++) {
-        fixed srcX = ((fixed)x * (WIDTH - 1) << FLOAT_SCALE) / (SCREEN_WIDTH - 1);
+        fixed srcX = (fixed)x << (FLOAT_SCALE - 1);
         int x1 = srcX >> FLOAT_SCALE;
         int x2 = (x1 < WIDTH - 1) ? x1 + 1 : x1;
         fixed xFrac = srcX - ((fixed)x1 << FLOAT_SCALE);
