@@ -1,4 +1,6 @@
 #define FRAME_RATE 30
+#define FRAME_MICROS 1000000 / FRAME_RATE
+#define BRIGHTNESS 2
 #define SCREEN_WIDTH 96
 #define SCREEN_HEIGHT 64
 #define RLR_UNDEFINED 127
@@ -6,15 +8,11 @@
 #define FIXED_ONE ((fixed)1 << FLOAT_SCALE)
 
 #include <TinyScreen.h>
-#include <SPI.h>
-#include <Wire.h>
 #include "framedata.h"
 
 typedef uint8_t ReadFn(void*);
 typedef uint32_t fixed;
 
-int FRAME_MICROS = 1000000 / FRAME_RATE;
-uint8_t BRIGHTNESS = 2;
 
 uint32_t readBits(void* reader, ReadFn* readFn, uint8_t bits) {
   uint32_t value = 0;
@@ -179,9 +177,6 @@ VideoState video_state = VideoState(frames);
 uint32_t last_micros;
 
 void setup(void) {
-  SerialUSB.begin(9600);
-  Wire.begin();
-  Serial.begin(9600);
   display.begin();
   display.setFlip(true);
   display.setBitDepth(TSBitDepth16);
@@ -191,15 +186,6 @@ void setup(void) {
 
 void loop() {
   video_state.drawFrame(&display);
-  SerialUSB.print("Frame: ");
-  SerialUSB.print(video_state.frame);
-  SerialUSB.print(", ");
-
-  uint32_t elapsed = micros() - last_micros;
-  SerialUSB.print("Render time: ");
-  SerialUSB.print(elapsed);
-  SerialUSB.println("us");
-
   waitForNextFrame();
 }
 
