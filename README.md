@@ -2,6 +2,8 @@
 
 Playing Bad Apple on a TinyScreen+'s 96x64 display at 30 FPS! Unfortunately it has no speakers, so this is video-only :(
 
+[![Showcase](https://img.youtube.com/vi/S6zOcAdm1cY/maxresdefault.jpg)](https://www.youtube.com/watch?v=S6zOcAdm1cY)
+
 https://tinycircuits.com/collections/processors/products/tinyscreenplus
 
 ## Run it on your own TinyScreen+
